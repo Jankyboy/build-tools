@@ -22,7 +22,12 @@ function run_gdb(config) {
 
 function run_lldb(config) {
   const electron = evmConfig.execOf(config);
-  const args = [electron];
+  const lldbinit = path.resolve(config.root, 'src', 'tools', 'lldb', 'lldbinit.py');
+  const args = [
+    '-O' /* run before any file loads */,
+    `command script import ${lldbinit}`,
+    electron,
+  ];
   childProcess.execFileSync('lldb', args, opts);
 }
 
@@ -36,7 +41,7 @@ try {
   if (choice) {
     choice.runner(evmConfig.current());
   } else {
-    throw Error(
+    fatal(
       `No debugger found in PATH! Looked for [${choices
         .map(choice => `'${choice.exec}'`)
         .join(', ')}]`,

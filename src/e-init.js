@@ -85,19 +85,21 @@ function runGClientConfig(config) {
   depot.execFileSync(config, exec, args, opts);
 }
 
-function ensureRoot(config) {
+function ensureRoot(config, force) {
   const { root } = config;
 
-  if (!fs.existsSync(root)) {
-    ensureDir(root);
-    runGClientConfig(config);
-  } else if (fs.existsSync(path.resolve(root, '.gclient'))) {
+  ensureDir(root);
+
+  const hasOtherFiles = fs.readdirSync(root).some(file => file !== '.gclient');
+  if (hasOtherFiles && !force) {
+    fatal(`Root ${color.path(root)} is not empty. Please choose a different root directory.`);
+  }
+
+  if (fs.existsSync(path.resolve(root, '.gclient'))) {
     console.info(`${color.info} Root ${color.path(root)} already exists.`);
-    console.info(`${color.info} (OK if you are sharing $root between multiple build configs)`);
-  } else if (fs.readdirSync(root).length > 0) {
-    throw Error(
-      `Root ${color.path(root)} exists and is not empty. Please choose a different root directory.`,
-    );
+    console.info(`${color.info} (OK if you are sharing ${root} between multiple build configs)`);
+  } else {
+    runGClientConfig(config);
   }
 }
 
@@ -122,7 +124,7 @@ program
     'testing',
   )
   .option('-o, --out <name>', 'Built files will be placed in $root/src/out/$out')
-  .option('-f, --force', 'Overwrite existing build config with that name', false)
+  .option('-f, --force', 'Overwrite existing build config', false)
   .option('--asan', `When building, enable clang's address sanitizer`, false)
   .option('--tsan', `When building, enable clang's thread sanitizer`, false)
   .option('--msan', `When building, enable clang's memory sanitizer`, false)
@@ -169,7 +171,7 @@ try {
   if (!options.force && fs.existsSync(filename)) {
     const existing = evmConfig.fetchByName(name);
     if (existing.root !== config.root) {
-      throw Error(
+      fatal(
         `Build config ${color.config(
           name,
         )} already exists and points at a different root folder! (${color.path(filename)})`,
@@ -179,7 +181,7 @@ try {
 
   // Make sure the goma options are valid
   if (!['none', 'cache-only', 'cluster'].includes(options.goma)) {
-    throw new Error(
+    fatal(
       `Config property ${color.config('goma')} must be one of ${color.config(
         'cache-only',
       )} or ${color.config('cluster')} but you provided ${color.config(options.goma)}`,
@@ -187,7 +189,7 @@ try {
   }
 
   // save the new config
-  ensureRoot(config);
+  ensureRoot(config, !!options.force);
   evmConfig.save(name, config);
   console.log(`New build config ${color.config(name)} created in ${color.path(filename)}`);
 
@@ -198,7 +200,7 @@ try {
 
   // (maybe) run sync to ensure external binaries are downloaded
   if (program.bootstrap) {
-    childProcess.execFileSync(process.execPath, [e, 'sync', '-v', '--ignore_locks'], opts);
+    childProcess.execFileSync(process.execPath, [e, 'sync', '-v'], opts);
   }
 
   // maybe authenticate with Goma

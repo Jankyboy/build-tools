@@ -6,7 +6,7 @@ const path = require('path');
 const program = require('commander');
 
 const evmConfig = require('./evm-config.js');
-const { color } = require('./utils/logging');
+const { color, fatal } = require('./utils/logging');
 
 // 'feat: added foo (#1234)' --> 1234
 function getPullNumberFromSubject(subject) {
@@ -52,7 +52,7 @@ async function getPullURLsFromGitHub(sha1) {
   try {
     const response = await got(opts); // find the commit's PRs
     if (response.statusCode !== 200) {
-      throw new Error(`${opts.url} got ${response.headers.status}`);
+      fatal(`Could not open PR: ${opts.url} got ${response.headers.status}`);
     }
     ret.push(...(response.body || []).map(pull => pull.html_url).filter(url => !!url));
   } catch (error) {
@@ -80,7 +80,7 @@ async function getPullURLs(ref) {
     return [makeURL(parsed)];
   }
 
-  console.log(`${color.err} ${color.cmd(object)} is not a git object or pull request number`);
+  console.log(`${color.err} ${color.cmd(ref)} is not a git object or pull request number`);
   return [];
 }
 
@@ -106,8 +106,8 @@ let name;
 let options;
 
 program
-  .arguments('<name>')
-  .description('Create a new build configuration')
+  .arguments('<sha1|PR#>')
+  .description('Open a GitHub URL for the given commit hash / pull # / issue #')
   .option('--print', 'Print the URL instead of opening it', false)
   .action((name_in, options_in) => {
     name = name_in;

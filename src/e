@@ -15,6 +15,11 @@ const { refreshPathVariable } = require('./utils/refresh-path');
 refreshPathVariable();
 
 function maybeCheckForUpdates() {
+  // skip auto-update check if disabled
+  const disableAutoUpdatesFile = path.resolve(__dirname, '..', '.disable-auto-updates');
+  if (fs.existsSync(disableAutoUpdatesFile)) {
+    return;
+  }
   // don't check if we already checked recently
   const intervalHours = 4;
   const updateCheckTSFile = path.resolve(__dirname, '..', '.update');
@@ -31,7 +36,7 @@ function maybeCheckForUpdates() {
   // NB: send updater's stdout to stderr so its log messages are visible
   // but don't pollute stdout. For example, calling `FOO="$(e show exec)"`
   // should not get a FOO that includes "Checking for build-tools updates".
-  childProcess.spawnSync(process.execPath, ['e-check-for-updates.js'], {
+  childProcess.spawnSync(process.execPath, ['e-auto-update.js'], {
     cwd: __dirname,
     stdio: [0, 2, 2],
   });
@@ -128,6 +133,19 @@ program
   });
 
 program
+  .command('remove <name>')
+  .alias('rm')
+  .description('Remove build config <name> from list')
+  .action(name => {
+    try {
+      evmConfig.remove(name);
+      console.log(`Removed config ${color.config(name)}`);
+    } catch (e) {
+      fatal(e);
+    }
+  });
+
+program
   .command('show <subcommand>', 'Show info about the current build config')
   .command('test [specRunnerArgs...]', `Run Electron's spec runner`)
   .command('pr [options]', 'Open a GitHub URL where you can PR your changes')
@@ -137,18 +155,73 @@ program
     'load-xcode',
     'Loads required versions of Xcode and the macOS SDK and symlinks them.  This may require sudo',
   )
-  .command('check-for-updates', 'Check for build-tools updates');
+  .command('auto-update', 'Check for build-tools updates or enable/disable automatic updates')
+  .alias('check-for-updates')
+  .command(
+    'cherry-pick <patch-url> <target-branch> [additionBranches...]',
+    'Opens a PR to electron/electron that backport the given CL into our patches folder',
+  )
+  .alias('auto-cherry-pick');
 
 program
   .command('update-goma')
   .description('Ensure a fresh copy of Goma is installed')
-  .action(() => console.log(`goma checksum: ${goma.downloadAndPrepare()}`));
+  .action(() => {
+    const args = process.argv.slice(3);
+    const config = {};
+    if (args.length > 0 && args[0] === 'msftGoma') {
+      config.gomaSource = 'msft';
+    }
+    console.log(`goma checksum: ${goma.downloadAndPrepare(config)}`);
+  });
+
+program
+  .command('sanitize-config [name]')
+  .description('Update and overwrite an existing config to conform to latest build-tools updates')
+  .action(name => {
+    try {
+      const configName = name || evmConfig.currentName();
+      evmConfig.sanitizeConfig(configName, true);
+      console.log(`${color.success} Sanitized contents of ${color.config(configName)}`);
+    } catch (e) {
+      fatal(e);
+    }
+  });
+
+program
+  .command('npm')
+  .description(
+    'Run a command that eventually spawns the electron NPM package but override the Electron binary that is used to be your local from-source electron',
+  )
+  .allowUnknownOption()
+  .helpOption('\0')
+  .action(() => {
+    const args = process.argv.slice(3);
+    if (args.length === 0) {
+      console.error(`${color.err} Must provide a command to 'e npm'`);
+      process.exit(1);
+    }
+
+    const { status, error } = depot.spawnSync(evmConfig.current(), args[0], args.slice(1), {
+      stdio: 'inherit',
+      env: {
+        ELECTRON_OVERRIDE_DIST_PATH: evmConfig.outDir(evmConfig.current()),
+      },
+    });
+    if (status !== 0) {
+      console.error(
+        `${color.err} Failed to run command, exit code was "${status}", error was '${error}'`,
+      );
+    }
+    process.exit(status);
+  });
 
 program
   .command('depot-tools')
   .alias('d')
   .description('Run a command from the depot-tools directory with the correct configuration')
   .allowUnknownOption()
+  .helpOption('\0')
   .action(() => {
     const args = process.argv.slice(3);
     if (args.length === 0) {

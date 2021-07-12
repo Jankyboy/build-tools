@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const childProcess = require('child_process');
+const cp = require('child_process');
 const path = require('path');
 const program = require('commander');
 
@@ -11,17 +11,27 @@ const depot = require('./utils/depot-tools');
 
 function setRemotes(cwd, repo) {
   for (const remote in repo) {
-    const cmd = 'git';
-    let args = ['remote', 'set-url', remote, repo[remote]];
-    const opts = { cwd };
-    childProcess.execFileSync(cmd, args, opts);
+    // First check that the fork remote exists.
+    if (remote === 'fork') {
+      const remotes = cp
+        .execSync('git remote', { cwd })
+        .toString()
+        .trim()
+        .split('\n');
 
-    args.splice(-1, 0, '--push');
-    childProcess.execFileSync(cmd, args, opts);
+      // If we've not added the fork remote, add it instead of updating the url.
+      if (!remotes.includes('fork')) {
+        cp.execSync(`git remote add ${remote} ${repo[remote]}`, { cwd });
+        break;
+      }
+    }
+
+    cp.execSync(`git remote set-url ${remote} ${repo[remote]}`, { cwd });
+    cp.execSync(`git remote set-url --push ${remote} ${repo[remote]}`, { cwd });
   }
 }
 
-function runGClientSync(config, syncArgs) {
+function runGClientSync(config, syncArgs, syncOpts) {
   const srcdir = path.resolve(config.root, 'src');
   ensureDir(srcdir);
 
@@ -35,6 +45,11 @@ function runGClientSync(config, syncArgs) {
   const args = ['gclient.py', 'sync', '--with_branch_heads', '--with_tags', '-vv', ...syncArgs];
   const opts = {
     cwd: srcdir,
+    env: syncOpts.threeWay
+      ? {
+          ELECTRON_USE_THREE_WAY_MERGE_FOR_PATCHES: 'true',
+        }
+      : {},
   };
   depot.execFileSync(config, exec, args, opts);
 
@@ -45,15 +60,22 @@ function runGClientSync(config, syncArgs) {
   setRemotes(nodejsPath, config.remotes.node);
 }
 
-program
+const opts = program
+  .option(
+    '--3|--three-way',
+    'Apply Electron patches using a three-way merge, useful when upgrading Chromium',
+  )
   .arguments('[gclientArgs...]')
   .allowUnknownOption()
   .description('Fetch source / synchronize repository checkouts')
   .parse(process.argv);
 
 try {
-  const syncArgs = program.parseOptions(process.argv).unknown;
-  runGClientSync(evmConfig.current(), syncArgs);
+  const { threeWay } = opts;
+  const { unknown: syncArgs } = program.parseOptions(process.argv);
+  runGClientSync(evmConfig.current(), syncArgs, {
+    threeWay,
+  });
 } catch (e) {
   fatal(e);
 }

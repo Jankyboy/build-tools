@@ -31,8 +31,8 @@ function ensureGNGen(config) {
     return runGNGen(config);
 }
 
-function runNinja(config, target, ninjaArgs) {
-  if (config.goma !== 'none') {
+function runNinja(config, target, useGoma, ninjaArgs) {
+  if (useGoma && config.goma !== 'none') {
     goma.downloadAndPrepare(config);
 
     if (config.goma === 'cluster') {
@@ -62,16 +62,21 @@ function runNinja(config, target, ninjaArgs) {
 
     goma.ensure(config);
     if (!ninjaArgs.includes('-j') && !ninjaArgs.find(arg => /^-j[0-9]+$/.test(arg.trim()))) {
-      ninjaArgs.push('-j', process.platform === 'darwin' ? 50 : 200);
+      ninjaArgs.push('-j', 200);
     }
+  } else {
+    console.info(`${color.info} Building ${target} with Goma disabled`);
   }
 
   depot.ensure(config);
   ensureGNGen(config);
 
-  const exec = os.platform === 'win32' ? 'ninja.exe' : 'ninja';
+  const exec = os.platform() === 'win32' ? 'ninja.exe' : 'ninja';
   const args = [...ninjaArgs, target];
-  const opts = { cwd: evmConfig.outDir(config) };
+  const opts = {
+    cwd: evmConfig.outDir(config),
+    ...(useGoma ? {} : { env: { GOMA_DISABLED: true } }),
+  };
   depot.execFileSync(config, exec, args, opts);
 }
 
@@ -82,6 +87,7 @@ program
   .option('--list-targets', 'Show all supported targets', false)
   .option('--gen', 'Force a re-run of `gn gen` before building', false)
   .option('-t|--target [target]', 'Forces a specific ninja target')
+  .option('--no-goma', 'Build without goma', false)
   .parse(process.argv);
 
 try {
@@ -129,7 +135,7 @@ try {
     args.splice(index, 1);
   }
 
-  runNinja(config, program.target || pretty_targets[pretty], args);
+  runNinja(config, program.target || pretty_targets[pretty], program.goma, args);
 } catch (e) {
   fatal(e);
 }

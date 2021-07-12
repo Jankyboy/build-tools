@@ -41,6 +41,27 @@ function ensureDepotTools() {
   }
 }
 
+function platformOpts() {
+  let opts = {};
+
+  switch (os.platform()) {
+    case 'win32':
+      opts = {
+        DEPOT_TOOLS_WIN_TOOLCHAIN: '1',
+        DEPOT_TOOLS_WIN_TOOLCHAIN_BASE_URL:
+          'https://electron-build-tools.s3-us-west-2.amazonaws.com/win32/toolchains/_',
+        GYP_MSVS_HASH_9ff60e43ba91947baca460d0ca3b1b980c3a2c23:
+          '6d205e765a23d3cbe0fcc8d1191ae406d8bf9c04',
+        GYP_MSVS_HASH_a687d8e2e4114d9015eb550e1b156af21381faac:
+          'b1bdbc45421e4e0ff0584c4dbe583e93b046a411',
+        GYP_MSVS_HASH_20d5f2553f: 'e146e01913',
+        GYP_MSVS_HASH_3bda71a11e: 'e146e01913',
+      };
+  }
+
+  return opts;
+}
+
 function depotOpts(config, opts = {}) {
   // some defaults
   opts = {
@@ -54,13 +75,7 @@ function depotOpts(config, opts = {}) {
     PYTHONDONTWRITEBYTECODE: '1', // depot needs it
     DEPOT_TOOLS_METRICS: '0', // disable depot metrics
     ...process.env,
-    DEPOT_TOOLS_WIN_TOOLCHAIN: '1',
-    DEPOT_TOOLS_WIN_TOOLCHAIN_BASE_URL:
-      'https://electron-build-tools.s3-us-west-2.amazonaws.com/win32/toolchains/_',
-    GYP_MSVS_HASH_9ff60e43ba91947baca460d0ca3b1b980c3a2c23:
-      '6d205e765a23d3cbe0fcc8d1191ae406d8bf9c04',
-    GYP_MSVS_HASH_a687d8e2e4114d9015eb550e1b156af21381faac:
-      'b1bdbc45421e4e0ff0584c4dbe583e93b046a411',
+    ...platformOpts(),
     ...config.env,
     ...opts.env,
     // Circular reference so we have to delay load
@@ -69,7 +84,18 @@ function depotOpts(config, opts = {}) {
 
   // put depot tools at the front of the path
   const key = pathKey();
-  opts.env[key] = [DEPOT_TOOLS_DIR, process.env[key]].join(path.delimiter);
+  const paths = [DEPOT_TOOLS_DIR];
+
+  // On apple silicon the default python2 binary does not work
+  // with vpython.  The one depot tools vends _does_ work.  So we
+  // add that one to the path ahead of your default python
+  if (process.platform === 'darwin' && process.arch === 'arm64') {
+    const pythonRelDirFile = path.resolve(DEPOT_TOOLS_DIR, 'python_bin_reldir.txt');
+    if (fs.existsSync(pythonRelDirFile)) {
+      paths.push(path.resolve(DEPOT_TOOLS_DIR, fs.readFileSync(pythonRelDirFile, 'utf8').trim()));
+    }
+  }
+  opts.env[key] = [...paths, process.env[key]].join(path.delimiter);
 
   return opts;
 }
@@ -94,6 +120,7 @@ function depotExecFileSync(config, exec, args, opts_in) {
 }
 
 module.exports = {
+  opts: depotOpts,
   path: DEPOT_TOOLS_DIR,
   ensure: ensureDepotTools,
   execFileSync: depotExecFileSync,

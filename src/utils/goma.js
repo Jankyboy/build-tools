@@ -4,8 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const rimraf = require('rimraf');
 const { unzipSync } = require('cross-zip');
-const { color } = require('./logging');
+const { color, fatal } = require('./logging');
 const depot = require('./depot-tools');
+const os = require('os');
 
 const gomaDir = path.resolve(__dirname, '..', '..', 'third_party', 'goma');
 const gomaGnFile = path.resolve(__dirname, '..', '..', 'third_party', 'goma.gn');
@@ -14,9 +15,15 @@ const gomaBaseURL = 'https://electron-build-tools.s3-us-west-2.amazonaws.com/bui
 const gomaLoginFile = path.resolve(gomaDir, 'last-known-login');
 
 const GOMA_PLATFORM_SHAS = {
-  darwin: '0c8c135d9f1833f181e4e09d177aafa76c1f1633b445c9674d231a07d2d3fbde',
-  linux: 'fda96d3903c57ca171ccb295bd428af2c2b7c8906f46cfb7b2c00a6f2c73fd66',
-  win32: 'f27b333b98b005657521ca35e825f207db26f2e3135d7aaca611a15bd66c451f',
+  darwin: '884546f598e15ae7c70074b1968202e0a624ef7bcc5336196d629a6fe62830ac',
+  linux: 'fff4dcf6fe324b2f0862e73d9371dc97e2d56432ca7162aed23fcacb4a476e78',
+  win32: '39510f2442d8e938a86bc14c9c2141041b597b99c1ca945eee5a3e13f8ba96d0',
+};
+
+const MSFT_GOMA_PLATFORM_SHAS = {
+  darwin: '34a0f1c3498c5387c686fd38f88d8f505c0dcb9caaf642612da077042f73f219',
+  linux: '5e8b3d7c4c7283f6fcef44b77cbb7074ffde3e7c9dc849e701828de27870829e',
+  win32: 'a80c73929777ca22382ed521a992873025a1ce9c6b475538eca5f82cf843a8e6',
 };
 
 const isSupportedPlatform = !!GOMA_PLATFORM_SHAS[process.platform];
@@ -29,7 +36,10 @@ function downloadAndPrepareGoma(config) {
     console.log(`Writing new goma.gn file ${color.path(gomaGnFile)}`);
     fs.writeFileSync(gomaGnFile, gomaGnContents);
   }
-  const sha = GOMA_PLATFORM_SHAS[process.platform];
+  let sha = GOMA_PLATFORM_SHAS[process.platform];
+  if (config && config.gomaSource === 'msft') {
+    sha = MSFT_GOMA_PLATFORM_SHAS[process.platform];
+  }
   if (
     fs.existsSync(gomaShaFile) &&
     fs.readFileSync(gomaShaFile, 'utf8') === sha &&
@@ -46,7 +56,7 @@ function downloadAndPrepareGoma(config) {
   if (fs.existsSync(path.resolve(gomaDir, 'goma_ctl.py'))) {
     depot.spawnSync(config, 'python', ['goma_ctl.py', 'stop'], {
       cwd: gomaDir,
-      stdio: 'ignore',
+      stdio: ['ignore'],
     });
   }
 
@@ -84,7 +94,7 @@ function downloadAndPrepareGoma(config) {
       cwd: targetDir,
     });
     if (result.status !== 0) {
-      throw new Error('Failed to extract goma');
+      fatal('Failed to extract goma');
     }
   } else {
     unzipSync(tmpDownload, targetDir);
@@ -145,13 +155,26 @@ function ensureGomaStart(config) {
   const { status } = childProcess.spawnSync(gomacc, ['port', '2']);
   if (status === 0) return;
 
+  // Set number of subprocs to equal number of CPUs for MacOS
+  let subprocs = {};
+  if (process.platform === 'darwin') {
+    const cpus = os.cpus().length;
+    subprocs = {
+      GOMA_MAX_SUBPROCS: cpus.toString(),
+      GOMA_MAX_SUBPROCS_LOW: cpus.toString(),
+    };
+  }
+
   console.log(color.childExec('goma_ctl.py', ['ensure_start'], { cwd: gomaDir }));
   childProcess.execFileSync('python', ['goma_ctl.py', 'ensure_start'], {
     cwd: gomaDir,
     env: {
       ...process.env,
       ...gomaEnv(config),
+      ...subprocs,
     },
+    // Inherit stdio on Windows because otherwise this never terminates
+    stdio: process.platform === 'win32' ? 'inherit' : ['ignore'],
   });
 }
 

@@ -5,7 +5,7 @@ This repository contains helper/wrapper scripts to make building Electron easier
 ## Installation
 
 A handful of prerequisites, such as git, python, and npm, are
-required for building Electron itself; these can be found in 
+required for building Electron itself; these can be found in
 [Platform Prerequisites][platform-prerequisites]. `npm` can be used
 with `build-tools` itself as well, but we've configured it to run
 with `yarn`, so we also recommend you [install it to your system](https://yarnpkg.com/lang/en/docs/install/).
@@ -17,8 +17,8 @@ Windows if you install them, or use built-in tools like Windows'
 
 Please note that `build-tools` (due to nested dependencies) might not work properly in powershell, please use `cmd` on Windows for optimum results.
 
-```sh	
-# Install build-tools package globally:	
+```sh
+# Install build-tools package globally:
 npm i -g @electron/build-tools
 ```
 
@@ -27,11 +27,11 @@ npm i -g @electron/build-tools
 You can run a new Electron build with this command:
 
 ```sh
-# The 'Hello, World!' of build-tools: get and build `master`
+# The 'Hello, World!' of build-tools: get and build `main`
 # Choose the directory where Electron's source and build files will reside.
 # You can specify any path you like; this command defaults to ~/projects/electron.
 # If you're going to use multiple branches, you may want something like:
-# `--root=~/electron/branch` (e.g. `~/electron-gn/master`)
+# `--root=~/electron/branch` (e.g. `~/electron-gn/main`)
 e init --root=~/electron --bootstrap testing
 ```
 
@@ -49,7 +49,7 @@ that you can switch between so that one is the current, active configuration.
 Many choices go into an Electron build:
 
 * Which [Electron branch](https://github.com/electron/electron/branches)
-  is used (e.g. `master`, `7-0-x`)
+  is used (e.g. `main`, `13-x-y`)
 * Which [.gn config file][gn-configs] is imported (e.g.
   [testing](https://github.com/electron/electron/blob/master/build/args/testing.gn) or
   [release](https://github.com/electron/electron/blob/master/build/args/release.gn))
@@ -83,7 +83,7 @@ and building the code. `e` wraps these tools:
 
 To see all potential options for this command, run:
 
-```
+```sh
 $ e init --help
 ```
 
@@ -104,38 +104,38 @@ want to make multiple build types of the same branch, you can reuse
 an existing root to share it between build configs.
 
 As an example, let's say you're starting from scratch and want both
-testing and release builds of the master branch in `electron/electron`.
+testing and release builds of the main branch in `electron/electron`.
 You might do this:
 
 ```sh
-# making 'release' and 'testing' builds from master
+# making 'release' and 'testing' builds from main
 
-$ e init master-testing -i testing --root=~/src/electron
+$ e init main-testing -i testing --root=~/src/electron
 Creating '~/src/electron'
-New build config 'master-testing' created
-Now using config 'master-testing'
+New build config 'main-testing' created
+Now using config 'main-testing'
 $ e show current
-master-testing
+main-testing
 
-$ e init master-release -i release --root=~/src/electron
+$ e init main-release -i release --root=~/src/electron
 INFO Root '~/src/electron' already exists.
 INFO (OK if you are sharing $root between multiple build configs)
-New build config 'master-release' created
-Now using config 'master-release'
+New build config 'main-release' created
+Now using config 'main-release'
 
 $ e show configs
-* master-release
-  master-testing
+* main-release
+  main-testing
 
 $ e show current
-master-release
+main-release
 $ e show root
 ~/src/electron
 
-$ e use master-testing
-Now using config 'master-testing'
+$ e use main-testing
+Now using config 'main-testing'
 $ e show current
-master-testing
+main-testing
 $ e show root
 ~/src/electron
 ```
@@ -147,7 +147,7 @@ after creating the build config. Let's see what those do:
 
 To see all potential options for this command, run:
 
-```
+```sh
 $ e sync --help
 ```
 
@@ -160,7 +160,7 @@ the rest of the sources to the versions needed by the new Electron branch.
 
 ```sh
 $ e show current
-master-testing
+main-testing
 
 $ e show root
 ~/src/electron
@@ -190,7 +190,7 @@ Running "gclient sync --with_branch_heads --with_tags -vvvv" in '~/src/electron/
 
 To see all potential options for this command, run:
 
-```
+```sh
 $ e build --help
 ```
 
@@ -232,7 +232,7 @@ As usual, any extra args are passed along to the executable. For example,
 $ uname
 Linux
 $ e debug
-Reading symbols from /home/yourname/electron/gn/master/src/out/Testing/electron...
+Reading symbols from /home/yourname/electron/gn/main/src/out/Testing/electron...
 (gdb)
 ```
 
@@ -252,7 +252,7 @@ along to the runner.
 
 To see all potential options for this command, run:
 
-```
+```sh
 $ e test --help
 ```
 
@@ -275,7 +275,7 @@ Possible extra arguments to pass:
 
 To see all potential options for this command, run:
 
-```
+```sh
 $ e show --help
 ```
 
@@ -316,13 +316,17 @@ $ cd `e show src base` && pwd
 $ ripgrep --t h TakeHeapSnapshot `e show src`
 ```
 
+### `e remove <name>`
+
+`e remove|rm <name>` removes a build config from the list.
+
 ### `e open <commit | issue | PR>`
 
 `e open` opens the GitHub page for the specified commit, pull request, or issue.
 
 To see all potential options for this command, run:
 
-```
+```sh
 $ e open --help
 ```
 
@@ -338,7 +342,7 @@ Since you can pass in a pull request or issue number as well,
 
 To see all potential options for this command, run:
 
-```
+```sh
 $ e patches --help
 ```
 
@@ -370,6 +374,38 @@ Valid patch directories can include:
 [platform-prerequisites]: https://electronjs.org/docs/development/build-instructions-gn#platform-prerequisites
 [sanitizers]: https://github.com/google/sanitizers
 
+### `e sanitize-config <name>`
+
+`e sanitize-config` updates and/or overwrites an existing config to conform to latest `build-tools` updates.
+
+To see all potential options for this command, run:
+
+```sh
+$ e sanitize-config --help
+```
+
+Sometimes `build-tools` will make updates to its config requirements. In these events warnings will be output to console to inform you that `build-tools` has temporarily handled the issues. You can make these warnings go away either by manually updating your config files or by running this command to automatically overwrite the existing configs to update formatting.
+
+## Common Usage
+
+### Building a Specific Electron Version
+
+`e init` checks out the HEAD of the main branch. To build against a specific version of Electron, checkout that version with these commands:
+
+```sh
+# Change working directory to the Electron source directory
+cd `e show src`
+
+# Checkout the desired Electron version (in this case, 11.0.0)
+git checkout tags/v11.0.0 -b v11.0.0
+
+# Sync dependencies with the current branch
+e sync
+
+# Build Electron
+e build
+```
+
 ## Advanced Usage
 
 ### Per-Session Active Configs
@@ -382,3 +418,19 @@ export EVM_CURRENT_FILE="$(mktemp --tmpdir evm-current.XXXXXXXX.txt)"
 
 This will create per-shell temporary files in which he active config file can be changed with `e use`.
 
+### Disabling Automatic Updates
+
+With the default configuration, build-tools will automatically check for updates every 4 hours.
+
+You can enable and disable these automatic updates with the following commands:
+
+```
+e auto-update enable
+e auto-update disable
+```
+
+Regardless of whether automatic updates are enabled, you can manually call the following command to immediately trigger an update.
+
+```
+e auto-update check
+```

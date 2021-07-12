@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const yml = require('js-yaml');
-const { color } = require('./utils/logging');
+const { color, fatal } = require('./utils/logging');
 const { ensureDir } = require('./utils/paths');
 const goma = require('./utils/goma');
 const util = require('util');
@@ -39,26 +39,30 @@ function filenameToConfigName(filename) {
   return match ? match[1] : null;
 }
 
-function save(name, o) {
-  ensureDir(configRoot);
-  const filename = pathOf(name);
-  const txt =
-    (path.extname(filename) === '.json' ? JSON.stringify(o, null, 2) : yml.safeDump(o)) + '\n';
-  fs.writeFileSync(filename, txt);
-}
-
-function setCurrent(name) {
+function testConfigExists(name) {
   if (!fs.existsSync(pathOf(name))) {
-    throw Error(
+    fatal(
       `Build config ${color.config(name)} not found. (Tried ${buildPathCandidates(name)
         .map(f => color.path(f))
         .join(', ')})`,
     );
   }
+}
+
+function save(name, o) {
+  ensureDir(configRoot);
+  const filename = pathOf(name);
+  const isJSON = path.extname(filename) === '.json';
+  const txt = (isJSON ? JSON.stringify(o, null, 2) : yml.safeDump(o)) + '\n';
+  fs.writeFileSync(filename, txt);
+}
+
+function setCurrent(name) {
+  testConfigExists(name);
   try {
     currentFiles.forEach(filename => fs.writeFileSync(filename, `${name}\n`));
   } catch (e) {
-    throw Error(`Unable to set evm config ${color.config(name)} (${e})`);
+    fatal(`Unable to set config ${color.config(name)}: `, e);
   }
 }
 
@@ -80,10 +84,9 @@ function currentName() {
       return;
     }
   }, null);
-  if (name) {
-    return name;
-  }
-  throw Error('No current build configuration');
+
+  if (name) return name;
+  fatal('No current build configuration.');
 }
 
 function outDir(config) {
@@ -118,44 +121,36 @@ function maybeExtendConfig(config) {
 }
 
 function loadConfigFileRaw(name) {
-  const configFile = pathOf(name);
-  const configContents = fs.readFileSync(configFile);
+  const configPath = pathOf(name);
+
+  if (!fs.existsSync(configPath)) {
+    fatal(`Build config ${color.config(name)} not found.`);
+  }
+
+  const configContents = fs.readFileSync(configPath);
   return maybeExtendConfig(yml.safeLoad(configContents));
 }
 
-function sanitizeConfig(config) {
-  const configName = color.config(currentName());
+function sanitizeConfig(name, overwrite = false) {
+  const config = loadConfigFileRaw(name);
+  const changes = [];
 
   if (!['none', 'cluster', 'cache-only'].includes(config.goma)) {
     config.goma = 'cache-only';
-    console.warn(
-      `${color.warn} Your evm config ${configName} does not define the ${color.config(
-        'goma',
-      )} property as one of "none", "cluster" or "cache-only" - we are defaulting to ${color.config(
-        'cache-only',
-      )} for you`,
-    );
+    changes.push(`added missing property ${color.config('goma: cache-only')}`);
   }
 
   if (
     config.goma !== 'none' &&
     (!config.gen || !config.gen.args || !config.gen.args.find(arg => arg.includes(goma.gnFilePath)))
   ) {
-    config.gen.args.push(`import("${goma.gnFilePath}")`);
-    console.warn(
-      `${
-        color.warn
-      } Your evm config ${configName} has goma enabled but did not include the goma gn file "${color.path(
-        goma.gnFilePath,
-      )}" in the gen args - we've put it there for you`,
-    );
+    const str = `import("${goma.gnFilePath}")`;
+    config.gen.args.push(str);
+    changes.push(`added ${color.cmd(str)} needed by goma`);
   }
 
   if (config.origin) {
     const oldConfig = color.config(util.inspect({ origin: config.origin }));
-    console.warn(
-      `${color.warn} Your evm config ${configName} is using an old remote configuration "${oldConfig}" - we've updated it for you`,
-    );
 
     config.remotes = {
       electron: {
@@ -167,6 +162,7 @@ function sanitizeConfig(config) {
     };
 
     delete config.origin;
+    changes.push(`replaced superceded 'origin' property with 'remotes' property`);
   }
 
   if (
@@ -176,36 +172,59 @@ function sanitizeConfig(config) {
     config.gen.args.find(arg => arg.includes('cc_wrapper'))
   ) {
     config.gen.args = config.gen.args.filter(arg => !arg.includes('cc_wrapper'));
-    console.warn(
-      `${
-        color.warn
-      } Your evm config ${configName} has goma enabled but also defines a ${color.config(
-        'cc_wrapper',
-      )} argument - we have removed it for you`,
-    );
+    changes.push(`removed ${color.config('cc_wrapper')} definition because goma is enabled`);
   }
 
   if (!config.env || !config.env.CHROMIUM_BUILDTOOLS_PATH) {
     const toolsPath = path.resolve(config.root, 'src', 'buildtools');
     config.env.CHROMIUM_BUILDTOOLS_PATH = toolsPath;
-    console.warn(
-      `${color.warn} Your evm config ${configName} has not defined ${color.config(
-        'CHROMIUM_BUILDTOOLS_PATH',
-      )} - we have added it for you`,
-    );
+    changes.push(`defined ${color.config('CHROMIUM_BUILDTOOLS_PATH')}`);
+  }
+
+  if (changes.length > 0) {
+    if (overwrite) {
+      save(name, config);
+    } else {
+      console.warn(`${color.warn} We've made these temporary changes to your configuration:`);
+      console.warn(changes.map(change => ` * ${change}`).join('\n'));
+      console.warn(`Run ${color.cmd('e sanitize-config')} to make these changes permanent.`);
+    }
   }
 
   return config;
 }
 
+function remove(name) {
+  testConfigExists(name);
+
+  let currentConfigName;
+  try {
+    currentConfigName = currentName();
+  } catch {
+    currentConfigName = null;
+  }
+  if (currentConfigName && currentConfigName === name) {
+    fatal(`Config is currently in use`);
+  }
+
+  const filename = pathOf(name);
+  try {
+    return fs.unlinkSync(filename);
+  } catch (e) {
+    fatal(`Unable to remove config ${color.config(name)}: `, e);
+  }
+}
+
 module.exports = {
-  current: () => sanitizeConfig(loadConfigFileRaw(currentName())),
+  current: () => sanitizeConfig(currentName()),
   currentName,
   execOf,
+  fetchByName: name => sanitizeConfig(name),
   names,
   outDir,
   pathOf,
+  remove,
+  sanitizeConfig,
   save,
   setCurrent,
-  fetchByName: name => sanitizeConfig(loadConfigFileRaw(name)),
 };

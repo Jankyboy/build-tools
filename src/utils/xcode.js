@@ -6,7 +6,7 @@ const { ensureDir } = require('./paths');
 const { getIsArm } = require('./arm');
 const evmConfig = require('../evm-config');
 
-const { color } = require('./logging');
+const { color, fatal } = require('./logging');
 
 const XcodeDir = path.resolve(__dirname, '..', '..', 'third_party', 'Xcode');
 const XcodePath = path.resolve(XcodeDir, 'Xcode.app');
@@ -34,6 +34,14 @@ const XcodeVersions = {
   '12.0.0-UA': {
     fileName: 'Xcode-12.0.0-UA.zip',
     md5: '28c3f8a906be53361260b01fa5792baa',
+  },
+  '12.2.0': {
+    fileName: 'Xcode-12.2.0.zip',
+    md5: 'd1bfc9b5bc829ec81b999b78c5795508',
+  },
+  '12.4.0': {
+    fileName: 'Xcode-12.4.0.zip',
+    md5: '20828f7208e67f99928cc88aaafca00c',
   },
 };
 
@@ -69,7 +77,7 @@ function expectedXcodeVersion() {
   if (!XcodeVersions[version]) {
     console.warn(
       color.warn,
-      `automatically detected an unkown version of Xcode ${color.path(
+      `automatically detected an unknown version of Xcode ${color.path(
         version,
       )}, falling back to default of`,
       fallbackXcode,
@@ -135,7 +143,7 @@ function ensureXcode() {
         const newHash = hashFile(XcodeZip);
         if (newHash !== expectedXcodeHash) {
           rimraf.sync(XcodeZip);
-          throw new Error(
+          fatal(
             `Downloaded Xcode zip had hash "${newHash}" which does not match expected hash "${expectedXcodeHash}"`,
           );
         }
